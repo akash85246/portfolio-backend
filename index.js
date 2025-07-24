@@ -5,6 +5,10 @@ import authRoutes from "./routes/auth.routes.js";
 import passport from "passport";
 import session from "express-session";
 import LeeetCodeRouter from "./routes/leetCode.routes.js";
+import http from 'http';
+import { Server } from 'socket.io';
+import { setupSocket } from './controllers/socket.controller.js'
+
 dotenv.config();
 const app = express();
 
@@ -50,6 +54,17 @@ app.use(express.static("public"));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+  },
+});
+
+setupSocket(io);
+
+
 app.use((req, res, next) => {
   console.log("Incoming Request:", req.method, req.url);
   console.log("Origin:", req.headers.origin);
@@ -68,6 +83,6 @@ app.use("/api/auth", authRoutes);
 app.use("/api/leetcode", LeeetCodeRouter);
 
 const PORT = process.env.PORT;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });

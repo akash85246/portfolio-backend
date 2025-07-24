@@ -4,39 +4,66 @@ function createUserTable() {
   const query = `
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
-      username VARCHAR(50) NOT NULL UNIQUE,
+      username VARCHAR(50) NOT NULL,
       email VARCHAR(100) NOT NULL UNIQUE,
-      password VARCHAR(255) NOT NULL,
+      profile_picture TEXT,
+      type VARCHAR(255) NOT NULL,
+      last_online TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      is_online BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
   return pool.query(query);
 }
 
-async function addUser(username, email, password) {
-  const query = `    INSERT INTO users (username, email, password)
-    VALUES ($1, $2, $3)
-    RETURNING id, username, email, created_at;`;
-  const values = [username, email, password];
+async function addUser(username, email, profile_picture, type, last_online) {
+  const query = `    INSERT INTO users (username, email,profile_picture,  type, last_online)
+    VALUES ($1, $2, $3, $4, $5)
+    RETURNING id, username, email,profile_picture,  type, last_online ,created_at;`;
+  const values = [username, email, profile_picture, type, last_online];
   const result = await pool.query(query, values);
   return result.rows[0];
 }
-async function updateLogin(userId, lastLogin) {
+
+async function updateLogin(user_id) {
+  const lastLogin = new Date();
   const query = `UPDATE users SET last_login = $1 WHERE id = $2`;
-  const values = [lastLogin, userId];
+
+  const values = [lastLogin, user_id];
   await pool
     .query(query, values)
     .catch((err) => console.error("Error updating last login:", err));
+  return lastLogin;
 }
-async function getUser(username) {
-  const query = `SELECT * FROM users WHERE username = $1`;
-  const values = [username];
-  const result = await pool.query(query, values);
-  return result.rows[0];
+
+async function changeStatus(user_id) {
+  const query = `
+    UPDATE users 
+    SET is_online = CASE 
+                      WHEN is_online IS NULL THEN true 
+                      ELSE NOT is_online 
+                    END 
+    WHERE id = $1
+  `;
+  const values = [user_id];
+  await pool.query(query, values);
+  return true;
 }
-async function deleteUser(userId) {
+
+async function getUser(email) {
+  const query =
+    "SELECT username,profile_picture,email,id,last_online FROM users WHERE email=$1";
+  const values = [email];
+  const { rows } = await pool.query(query, values);
+  if (rows.length === 0) {
+    return [];
+  }
+  return rows;
+}
+
+async function deleteUser(user_id) {
   const query = `DELETE FROM users WHERE id = $1`;
-  const values = [userId];
+  const values = [user_id];
   await pool
     .query(query, values)
     .catch((err) => console.error("Error deleting user:", err));
@@ -47,6 +74,7 @@ function createMessageTable() {
     CREATE TABLE IF NOT EXISTS messages (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      receiver_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       content TEXT,
       file_url TEXT,
       ip_address VARCHAR(45) NOT NULL,
@@ -58,6 +86,90 @@ function createMessageTable() {
     );
   `;
   return pool.query(query);
+}
+
+async function updateMessageStatus(message_id, status) {
+  const query = `UPDATE messages SET status = $1 WHERE id = $2`;
+  const values = [status, message_id];
+  await pool.query(query, values);
+  return true;
+}
+
+async function addMessage(receiver_id, user_id, content, fileUrl, ipAddress) {
+  const query = `
+    WITH inserted AS (
+      INSERT INTO messages (receiver_id, user_id, content, file_url, ip_address)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, receiver_id, user_id, content, file_url, ip_address, created_at
+    )
+    SELECT 
+      inserted.*, 
+      receiver.profile_picture AS receiver_profile_picture,
+      sender.profile_picture AS sender_profile_picture
+    FROM inserted
+    JOIN users receiver ON inserted.receiver_id = receiver.id
+    JOIN users sender ON inserted.user_id = sender.id;
+  `;
+
+  const values = [receiver_id, user_id, content, fileUrl, ipAddress];
+  const result = await pool.query(query, values);
+  console.log("Message added:", result.rows[0]);
+  return result.rows[0];
+}
+
+async function deleteMessage(message_id) {
+  const query = `DELETE FROM messages WHERE id = $1`;
+  const values = [message_id];
+  await pool
+    .query(query, values)
+    .catch((err) => console.error("Error deleting message:", err));
+}
+
+async function updateMessage(message_id, new_content) {
+  const query = `UPDATE messages SET content = $1 WHERE id = $2 RETURNING *`;
+  const values = [new_content, message_id];
+  const result = await pool.query(query, values);
+  return result.rows[0];
+}
+
+async function getMessages(user_id, receiver_id) {
+  const query = `
+    SELECT 
+      m.*,
+      sender.profile_picture AS sender_profile_picture,
+      receiver.profile_picture AS receiver_profile_picture
+    FROM messages m
+    LEFT JOIN users sender ON m.user_id = sender.id
+    LEFT JOIN users receiver ON m.receiver_id = receiver.id
+    WHERE 
+      (m.user_id = $1 AND m.receiver_id = $2)
+      OR 
+      (m.user_id = $2 AND m.receiver_id = $1)
+    ORDER BY m.created_at ASC;
+  `;
+  const values = [user_id, receiver_id];
+  const result = await pool.query(query, values);
+  console.log(user_id, receiver_id);
+  console.log("Messages fetched:", result.rows);
+  return result.rows;
+}
+
+async function getAllMessageUser() {
+  const query = `
+    SELECT DISTINCT u.id, u.username, u.profile_picture, u.email, u.is_online, u.last_online
+    FROM users u
+    JOIN messages m ON u.id = m.user_id OR u.id = m.receiver_id
+    ORDER BY u.is_online DESC, u.last_online DESC, u.username;
+  `;
+  const result = await pool.query(query);
+  return result.rows;
+}
+
+async function getMessageById(message_id) {
+  const query = `SELECT * FROM messages WHERE id = $1`;
+  const values = [message_id];
+  const result = await pool.query(query, values);
+  return result.rows[0];
 }
 
 function createViewTable() {
@@ -77,12 +189,25 @@ const initializeDatabase = async () => {
     await createUserTable();
     await createMessageTable();
     await createViewTable();
-    console.log("✅ All tables initialized successfully");
+    console.log("All tables initialized successfully");
   } catch (err) {
-    console.error("❌ Error initializing tables:", err);
+    console.error("Error initializing tables:", err);
   }
 };
 
 initializeDatabase();
 
-export { addUser, updateLogin, getUser, deleteUser };
+export {
+  addUser,
+  updateLogin,
+  getUser,
+  deleteUser,
+  addMessage,
+  deleteMessage,
+  updateMessage,
+  getMessages,
+  getMessageById,
+  changeStatus,
+  updateMessageStatus,
+  getAllMessageUser,
+};
