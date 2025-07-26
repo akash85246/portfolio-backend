@@ -36,16 +36,13 @@ async function updateLogin(user_id) {
   return lastLogin;
 }
 
-async function changeStatus(user_id) {
+async function changeStatus(user_id, status) {
   const query = `
     UPDATE users 
-    SET is_online = CASE 
-                      WHEN is_online IS NULL THEN true 
-                      ELSE NOT is_online 
-                    END 
+    SET is_online = $2
     WHERE id = $1
   `;
-  const values = [user_id];
+  const values = [user_id, status];
   await pool.query(query, values);
   return true;
 }
@@ -71,36 +68,39 @@ async function deleteUser(user_id) {
 
 function createMessageTable() {
   const query = `
-    CREATE TABLE IF NOT EXISTS messages (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      receiver_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      content TEXT,
-      file_url TEXT,
-      ip_address VARCHAR(45) NOT NULL,
-      status VARCHAR(20) DEFAULT 'pending',
-      response TEXT,
-      error TEXT,
-      is_read BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+   CREATE TABLE IF NOT EXISTS messages (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  receiver_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT,
+  file_url TEXT,
+  ip_address VARCHAR(45) NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  response_to INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+  is_updated BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  error TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
   `;
   return pool.query(query);
 }
 
 async function updateMessageStatus(message_id, status) {
-  const query = `UPDATE messages SET status = $1 WHERE id = $2`;
+  const query = `UPDATE messages SET status = $1 WHERE id = $2 RETURNING *`;
   const values = [status, message_id];
-  await pool.query(query, values);
-  return true;
-}
+  const result = await pool.query(query, values);
 
-async function addMessage(receiver_id, user_id, content, fileUrl, ipAddress) {
+  console.log("Message status updated:", result.rows[0]);
+  return result.rows[0];
+}
+async function addMessage(receiver_id, user_id, content, fileUrl, ipAddress, response_to = null) {
   const query = `
     WITH inserted AS (
-      INSERT INTO messages (receiver_id, user_id, content, file_url, ip_address)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, receiver_id, user_id, content, file_url, ip_address, created_at
+      INSERT INTO messages (
+        receiver_id, user_id, content, file_url, ip_address, response_to
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, receiver_id, user_id, content, file_url, ip_address, response_to, created_at
     )
     SELECT 
       inserted.*, 
@@ -111,9 +111,8 @@ async function addMessage(receiver_id, user_id, content, fileUrl, ipAddress) {
     JOIN users sender ON inserted.user_id = sender.id;
   `;
 
-  const values = [receiver_id, user_id, content, fileUrl, ipAddress];
+  const values = [receiver_id, user_id, content, fileUrl, ipAddress, response_to];
   const result = await pool.query(query, values);
-  console.log("Message added:", result.rows[0]);
   return result.rows[0];
 }
 
@@ -125,9 +124,35 @@ async function deleteMessage(message_id) {
     .catch((err) => console.error("Error deleting message:", err));
 }
 
-async function updateMessage(message_id, new_content) {
-  const query = `UPDATE messages SET content = $1 WHERE id = $2 RETURNING *`;
-  const values = [new_content, message_id];
+async function updateMessage(message_id, new_content = null, new_file_url = null) {
+  const fields = [];
+  const values = [];
+  let idx = 1;
+
+  if (new_content !== null) {
+    fields.push(`content = $${idx++}`);
+    values.push(new_content);
+  }
+
+  if (new_file_url !== null) {
+    fields.push(`file_url = $${idx++}`);
+    values.push(new_file_url);
+  }
+
+  if (fields.length === 0) return null;
+
+ 
+  fields.push(`is_updated = true`);
+  fields.push(`updated_at = CURRENT_TIMESTAMP`);
+
+  values.push(message_id);
+  const query = `
+    UPDATE messages
+    SET ${fields.join(", ")}
+    WHERE id = $${idx}
+    RETURNING *;
+  `;
+
   const result = await pool.query(query, values);
   return result.rows[0];
 }
@@ -149,8 +174,6 @@ async function getMessages(user_id, receiver_id) {
   `;
   const values = [user_id, receiver_id];
   const result = await pool.query(query, values);
-  console.log(user_id, receiver_id);
-  console.log("Messages fetched:", result.rows);
   return result.rows;
 }
 
