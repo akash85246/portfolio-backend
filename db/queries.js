@@ -94,7 +94,14 @@ async function updateMessageStatus(message_id, status) {
   console.log("Message status updated:", result.rows[0]);
   return result.rows[0];
 }
-async function addMessage(receiver_id, user_id, content, fileUrl, ipAddress, response_to = null) {
+async function addMessage(
+  receiver_id,
+  user_id,
+  content,
+  fileUrl,
+  ipAddress,
+  response_to = null
+) {
   const query = `
     WITH inserted AS (
       INSERT INTO messages (
@@ -111,7 +118,14 @@ async function addMessage(receiver_id, user_id, content, fileUrl, ipAddress, res
     JOIN users sender ON inserted.user_id = sender.id;
   `;
 
-  const values = [receiver_id, user_id, content, fileUrl, ipAddress, response_to];
+  const values = [
+    receiver_id,
+    user_id,
+    content,
+    fileUrl,
+    ipAddress,
+    response_to,
+  ];
   const result = await pool.query(query, values);
   return result.rows[0];
 }
@@ -124,7 +138,11 @@ async function deleteMessage(message_id) {
     .catch((err) => console.error("Error deleting message:", err));
 }
 
-async function updateMessage(message_id, new_content = null, new_file_url = null) {
+async function updateMessage(
+  message_id,
+  new_content = null,
+  new_file_url = null
+) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -141,7 +159,6 @@ async function updateMessage(message_id, new_content = null, new_file_url = null
 
   if (fields.length === 0) return null;
 
- 
   fields.push(`is_updated = true`);
   fields.push(`updated_at = CURRENT_TIMESTAMP`);
 
@@ -179,12 +196,32 @@ async function getMessages(user_id, receiver_id) {
 
 async function getAllMessageUser() {
   const query = `
-    SELECT DISTINCT u.id, u.username, u.profile_picture, u.email, u.is_online, u.last_online
-    FROM users u
-    JOIN messages m ON u.id = m.user_id OR u.id = m.receiver_id
-    ORDER BY u.is_online DESC, u.last_online DESC, u.username;
+   SELECT 
+  u.id, 
+  u.username, 
+  u.profile_picture, 
+  u.email, 
+  u.is_online, 
+  u.last_online,
+  COALESCE(unread_counts.unread_count, 0) AS unread_count
+FROM users u
+JOIN messages m ON u.id = m.user_id OR u.id = m.receiver_id
+LEFT JOIN (
+  SELECT user_id, COUNT(*) AS unread_count
+  FROM messages
+  WHERE receiver_id = 1 AND status != 'read'
+  GROUP BY user_id
+) AS unread_counts ON u.id = unread_counts.user_id
+WHERE u.id != 1
+GROUP BY u.id, unread_counts.unread_count
+ORDER BY u.is_online DESC, u.last_online DESC, u.username;
   `;
+
   const result = await pool.query(query);
+
+  if (result.rows.length === 0) {
+    return [];
+  }
   return result.rows;
 }
 
@@ -198,13 +235,50 @@ async function getMessageById(message_id) {
 function createViewTable() {
   const query = `
     CREATE TABLE IF NOT EXISTS views (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, 
-      ip_address VARCHAR(45) NOT NULL, -- supports IPv4 and IPv6
-      viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  ip_address VARCHAR(45) NOT NULL,
+  viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (ip_address, user_id)
+);
   `;
   return pool.query(query);
+}
+
+async function addView(ip_address, user_id = null) {
+  const query = `
+    INSERT INTO views (ip_address, user_id)
+    VALUES ($1, $2)
+    ON CONFLICT (ip_address, user_id) DO NOTHING
+    RETURNING *;
+  `;
+  const values = [ip_address, user_id];
+  const result = await pool.query(query, values);
+  return result.rows[0]; // will be undefined if no new row inserted
+}
+
+async function getTotalViews() {
+  const query = `SELECT COUNT(*) AS total_views FROM views`;
+  const result = await pool.query(query).catch((err) => {
+    console.error("Error getting total views:", err);
+    throw err;
+  });
+  return parseInt(result.rows[0].total_views, 10);
+}
+async function updateViewsByIp(ip_address, user_id) {
+  const checkQuery = `
+    SELECT 1 FROM views WHERE ip_address = $1 AND user_id = $2
+  `;
+  const check = await pool.query(checkQuery, [ip_address, user_id]);
+  if (check.rowCount > 0) return null;
+  const query = `
+    UPDATE views
+    SET user_id = $1
+    WHERE ip_address = $2 AND user_id IS NULL
+    RETURNING *;
+  `;
+  const result = await pool.query(query, [user_id, ip_address]);
+  return result.rows;
 }
 
 const initializeDatabase = async () => {
@@ -233,4 +307,7 @@ export {
   changeStatus,
   updateMessageStatus,
   getAllMessageUser,
+  addView,
+  updateViewsByIp,
+  getTotalViews,
 };

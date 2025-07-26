@@ -5,6 +5,8 @@ import authRoutes from "./routes/auth.routes.js";
 import passport from "passport";
 import session from "express-session";
 import LeeetCodeRouter from "./routes/leetCode.routes.js";
+import ViewRouter from "./routes/view.routes.js"
+import IpRouter from "./routes/ip.routes.js";
 import http from 'http';
 import { Server } from 'socket.io';
 import { setupSocket } from './controllers/socket.controller.js'
@@ -53,7 +55,7 @@ app.use(passport.session());
 app.use(express.static("public"));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-
+app.set('trust proxy', true);
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -81,6 +83,8 @@ app.use((req, res, next) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/leetcode", LeeetCodeRouter);
+app.use("/api/view", ViewRouter);
+app.use("/api/ip", IpRouter);
 
 const PORT = process.env.PORT;
 server.listen(PORT, () => {
