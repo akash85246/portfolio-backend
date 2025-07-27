@@ -86,7 +86,7 @@ app.use("/api/leetcode", LeeetCodeRouter);
 app.use("/api/view", ViewRouter);
 app.use("/api/ip", IpRouter);
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT||5003;
 const BASE_URL = process.env.BASE_URL;
 server.listen(PORT,'0.0.0.0', () => {
   console.log(`Server running on ${BASE_URL}:${PORT}`);
