@@ -29,8 +29,6 @@ export const setupSocket = (io) => {
         // Mark user as online in DB
         await changeStatus(user_id, true); 
 
-      
-
         const messages = await getMessages(user_id, receiver_id);
         socket.emit("load_messages", messages);
 
@@ -71,7 +69,7 @@ export const setupSocket = (io) => {
           content,
           file_url,
           ipAddress,
-          response_to || null // reply target, can be null
+          response_to || null 
         );
 
         if (!result) {
@@ -100,7 +98,6 @@ export const setupSocket = (io) => {
     // Mark as read
     socket.on("mark_as_read", async ({ message_id }) => {
       const result = await updateMessageStatus(message_id, "read");
-      console.log("Message marked as read:", result);
       if (!result) {
         console.error("Failed to mark message as read:", message_id);
         socket.emit("message_error", {
@@ -114,10 +111,10 @@ export const setupSocket = (io) => {
 
         if (senderSocketId) {
           io.to(senderSocketId).emit("message_read", result);
-          io.to(senderSocketId).emit("message_read_ack", result); // ✅ Send ack to sender
+          io.to(senderSocketId).emit("message_read_ack", result); 
         }
 
-        // Optional: also tell receiver that the operation succeeded
+        
         socket.emit("read_status_updated", { success: true });
       } catch (err) {
         console.error("Error emitting read events:", err);

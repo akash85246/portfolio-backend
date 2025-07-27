@@ -62,7 +62,7 @@ async function googleCallback(req, res, next) {
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
       );
-      // Send the token securely to frontend
+     
       res.send(
         `<script>
           console.log("Sending JWT to frontend");
@@ -108,6 +108,7 @@ async function githubCallback(req, res, next) {
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
       );
+
       // Send the token securely to frontend
       res.send(
         `<script>
@@ -189,8 +190,10 @@ passport.use(
             type,
             last_online
           );
+         
           return cb(null, newUser[0]);
         } else {
+         
           return cb(null, result[0]);
         }
       } catch (err) {

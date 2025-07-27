@@ -22,7 +22,7 @@ async function addUser(username, email, profile_picture, type, last_online) {
     RETURNING id, username, email,profile_picture,  type, last_online ,created_at;`;
   const values = [username, email, profile_picture, type, last_online];
   const result = await pool.query(query, values);
-  return result.rows[0];
+  return result.rows;
 }
 
 async function updateLogin(user_id) {
@@ -91,7 +91,6 @@ async function updateMessageStatus(message_id, status) {
   const values = [status, message_id];
   const result = await pool.query(query, values);
 
-  console.log("Message status updated:", result.rows[0]);
   return result.rows[0];
 }
 async function addMessage(
