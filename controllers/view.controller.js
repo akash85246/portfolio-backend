@@ -2,8 +2,9 @@ import { addView, updateViewsByIp, getTotalViews } from "../db/queries.js";
 
 async function postView(req, res) {
   const { ip_address, user_id  } = req.body;
+  console.log("Received view request:", { ip_address, user_id });
 
-  if (!user_id || !ip_address) {
+  if (!user_id && !ip_address) {
     return res.status(400).json({ error: "User ID and Post ID are required" });
   }
 
